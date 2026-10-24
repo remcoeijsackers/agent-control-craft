@@ -1,0 +1,56 @@
+{
+  "id": "craft",
+  "name": "Craft Studio",
+  "version": "1.0.0",
+  "sdk": 1,
+  "description": "Photos, video, motion graphics and audio with the open-source Craft apps (FilmCraft, PhotoCraft, LightCraft, EffectCraft, SoundCraft). Agents get each app's own MCP server, confined to the task's folders, headless or live in the app when it is open; exports land in the task's results.",
+  "author": "Remco Eijsackers",
+  "homepage": "https://github.com/remcoeijsackers/agent-control-craft",
+  "permissions": ["mcp", "tools", "settings", "secrets", "routes", "db", "events"],
+  "main": "index.mjs",
+  "mcpServers": [
+    { "name": "film", "label": "FilmCraft", "description": "Video editing (Premiere Pro-class): import, cut, titles, color, export." },
+    { "name": "photo", "label": "PhotoCraft", "description": "Image editing (Photoshop-class): layers, retouching, export." },
+    { "name": "light", "label": "LightCraft", "description": "Photo library and raw development (Lightroom-class)." },
+    { "name": "effect", "label": "EffectCraft", "description": "Motion graphics and compositing (After Effects-class)." },
+    { "name": "sound", "label": "SoundCraft", "description": "Audio recording, editing and mixing (Pro Tools-class)." }
+  ],
+  "settings": [
+    { "key": "filmMode", "label": "FilmCraft", "type": "select", "options": [{ "value": "auto", "label": "On (live in the app when it is open)" }, { "value": "headless", "label": "On, always in the background" }, { "value": "off", "label": "Off" }] },
+    { "key": "filmPath", "label": "FilmCraft: path to filmcraft-cli", "type": "string", "placeholder": "found automatically" },
+    { "key": "filmPort", "label": "FilmCraft: control port of the app", "type": "number", "min": 1024, "max": 65535, "help": "Start the app with `FilmCraft --control <port>` to let agents work in your window." },
+    { "key": "photoMode", "label": "PhotoCraft", "type": "select", "options": [{ "value": "auto", "label": "On (live in the app when it is open)" }, { "value": "headless", "label": "On, always in the background" }, { "value": "off", "label": "Off" }] },
+    { "key": "photoPath", "label": "PhotoCraft: path to photocraft-cli", "type": "string", "placeholder": "found automatically" },
+    { "key": "photoPort", "label": "PhotoCraft: control port of the app", "type": "number", "min": 1024, "max": 65535, "help": "`PhotoCraft --control <port>`; put the app's control token under keys." },
+    { "key": "lightMode", "label": "LightCraft", "type": "select", "options": [{ "value": "auto", "label": "On (live in the app when it is open)" }, { "value": "headless", "label": "On, always in the background" }, { "value": "off", "label": "Off" }] },
+    { "key": "lightPath", "label": "LightCraft: path to lightcraft-cli", "type": "string", "placeholder": "found automatically" },
+    { "key": "lightPort", "label": "LightCraft: control port of the app", "type": "number", "min": 1024, "max": 65535, "help": "`LightCraft --control <port>` (LightCraft's own default is 7980)." },
+    { "key": "lightLibrary", "label": "LightCraft: library folder", "type": "string", "placeholder": "a new library per task", "help": "Your own LightCraft library (for example ~/Craft/LightCraft-bibliotheek). Empty: every task gets a fresh library in a temporary folder." },
+    { "key": "effectMode", "label": "EffectCraft", "type": "select", "options": [{ "value": "auto", "label": "On (live in the app when it is open)" }, { "value": "headless", "label": "On, always in the background" }, { "value": "off", "label": "Off" }] },
+    { "key": "effectPath", "label": "EffectCraft: path to effectcraft-cli", "type": "string", "placeholder": "found automatically" },
+    { "key": "effectPort", "label": "EffectCraft: control port of the app", "type": "number", "min": 1024, "max": 65535, "help": "`EffectCraft --control <port>`." },
+    { "key": "soundMode", "label": "SoundCraft", "type": "select", "options": [{ "value": "auto", "label": "On (live in the app when it is open)" }, { "value": "headless", "label": "On, always in the background" }, { "value": "off", "label": "Off" }] },
+    { "key": "soundPath", "label": "SoundCraft: path to soundcraft-cli", "type": "string", "placeholder": "found automatically" },
+    { "key": "soundPort", "label": "SoundCraft: control port of the app", "type": "number", "min": 1024, "max": 65535, "help": "`SoundCraft --control <port>`." },
+    { "key": "mediaFolders", "label": "Media folders agents may read", "type": "list", "placeholder": "~/Craft, ~/Pictures", "help": "Read only, one per line. Agents always write to the task's output folder." }
+  ],
+  "secrets": [
+    { "key": "photoControlToken", "label": "PhotoCraft control token (only for live mode)", "help": "The 64-character token of `PhotoCraft --control`; kept in the OS key store and handed to photocraft-cli as a private file." }
+  ],
+  "nav": [{ "id": "studio", "label": "Craft Studio", "page": "index.html" }],
+  "tables": ["runs"],
+  "tools": [
+    {
+      "name": "status",
+      "description": "Call this first when a task involves photos, video, motion graphics or audio. Says which Craft apps you have in this run (FilmCraft, PhotoCraft, LightCraft, EffectCraft, SoundCraft), whether each works headless or live in the user's open app, which folders it may read and write, and how to work so your results reach the user.",
+      "params": {}
+    },
+    {
+      "name": "delivery_spec",
+      "description": "Exact delivery specs for a target (frame size, aspect, fps, codec, maximum duration, loudness) and the export call per Craft app, so you don't have to guess. Targets: instagram-feed, instagram-story, instagram-reel, tiktok, linkedin-feed, linkedin-video, youtube, youtube-short, web-hero, web-image, print-a4, podcast. Without a target: the list.",
+      "params": { "target": { "type": "string", "description": "One of the targets, e.g. instagram-reel", "optional": true } }
+    }
+  ],
+  "routes": [{ "method": "GET", "path": "/status" }],
+  "events": ["run.status"]
+}

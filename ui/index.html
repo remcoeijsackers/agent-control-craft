@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Craft Studio</title>
+<!--
+  The Craft Studio page, shown by Agent Control in a sandboxed iframe. Everything is in this file; data comes through
+  the dashboard's bridge (postMessage), which only reaches this plugin's own route: GET /status.
+-->
+<style>
+  :root {
+    --surface: rgba(255,255,255,.04); --border: rgba(140,160,255,.16); --border-strong: rgba(140,160,255,.3);
+    --text: #e9ecf6; --muted: #8e97b3; --accent: #7c95ff; --accent-contrast: #0b0e1a; --ok: #3ccf91; --warn: #f5b84a; --bad: #ef6461; --radius: 14px;
+    color-scheme: dark;
+  }
+  :root[data-mode="light"] { color-scheme: light; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: transparent; color: var(--text); font: 14px/1.45 var(--font, system-ui, -apple-system, "Segoe UI", sans-serif); }
+  body { padding: 16px; }
+  h1 { font-size: 1.2rem; margin: 0; }
+  h2 { font-size: .8rem; margin: 0 0 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 600; }
+  .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .spacer { flex: 1; }
+  .meta { color: var(--muted); font-size: .85rem; }
+  .btn { font: inherit; font-size: .85rem; padding: 5px 12px; border-radius: 999px; border: 1px solid var(--border-strong); background: transparent; color: var(--text); cursor: pointer; }
+  .btn:hover { border-color: var(--accent); }
+  .panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; margin-top: 14px; }
+  .apps { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; margin-top: 14px; }
+  .app { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+  .app.off { opacity: .7; }
+  .head { display: flex; align-items: center; gap: 8px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; background: var(--muted); }
+  .dot.ok { background: var(--ok); box-shadow: 0 0 0 4px color-mix(in srgb, var(--ok) 20%, transparent); }
+  .dot.live { background: var(--accent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 25%, transparent); }
+  .dot.warn { background: var(--warn); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { font-size: .72rem; font-weight: 600; border-radius: 999px; padding: 2px 9px; border: 1px solid var(--border-strong); color: var(--muted); }
+  .chip.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 50%, transparent); }
+  .chip.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 50%, transparent); }
+  .chip.live { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 50%, transparent); }
+  .path { font-size: .78rem; color: var(--muted); overflow-wrap: anywhere; }
+  .hint { font-size: .8rem; color: var(--warn); }
+  table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+  th { text-align: left; color: var(--muted); font-weight: 600; font-size: .75rem; padding: 0 8px 6px 0; }
+  td { padding: 6px 8px 6px 0; border-top: 1px solid var(--border); vertical-align: top; }
+  a { color: var(--accent); text-decoration: none; cursor: pointer; }
+  .table { overflow-x: auto; }
+  .err { color: var(--bad); font-size: .85rem; }
+  ol { margin: 6px 0 0 18px; padding: 0; } ol li { margin: 3px 0; }
+  code { font-size: .82rem; }
+</style>
+</head>
+<body>
+  <div class="row">
+    <h1>Craft Studio</h1>
+    <span class="meta">Photos, video, motion graphics and audio with the Craft apps</span>
+    <span class="spacer"></span>
+    <button class="btn" id="refresh">Check again</button>
+    <button class="btn" id="settings">Settings</button>
+  </div>
+  <div class="apps" id="apps"><div class="meta">Loading…</div></div>
+  <section class="panel" aria-label="Folders">
+    <h2>Folders</h2>
+    <div id="folders" class="meta"></div>
+  </section>
+  <section class="panel" aria-label="Recent runs">
+    <h2>Recent runs with Craft apps</h2>
+    <div class="table" id="recent"></div>
+  </section>
+  <section class="panel" aria-label="How it works">
+    <h2>How it works</h2>
+    <ol class="meta">
+      <li>Every Claude run in this workspace gets the MCP server of each installed Craft app (<code>craft-film</code>, <code>craft-photo</code>, …), plus <code>craft_status</code> and <code>craft_delivery_spec</code>.</li>
+      <li>The first call to an app's tools asks you in the inbox, unless you allow it under Rights (tool <code>craft-film</code> and so on). In God mode the autonomy rules decide.</li>
+      <li>Agents save projects and exports in the task's output folder; they appear under Results when the run ends.</li>
+      <li>Live mode: start the app with <code>--control &lt;port&gt;</code> and set that port in the settings. While it answers, agents work in your window and you can watch; otherwise they work headless.</li>
+    </ol>
+  </section>
+<script>
+  const pending = new Map();
+  let seq = 0, started = false;
+  function call(method, path, body) {
+    return new Promise((resolve, reject) => {
+      const id = ++seq;
+      pending.set(id, { resolve, reject });
+      parent.postMessage({ type: "agent-control:request", id, method, path, body }, "*");
+      setTimeout(() => { if (pending.delete(id)) reject(new Error("No answer from Agent Control")); }, 30000);
+    });
+  }
+  addEventListener("message", (e) => {
+    if (e.source !== parent) return;
+    const m = e.data || {};
+    if (m.type === "agent-control:init") { applyTheme(m.theme); if (!started) { started = true; load(); } }
+    if (m.type === "agent-control:response" && pending.has(m.id)) {
+      const p = pending.get(m.id); pending.delete(m.id);
+      m.ok ? p.resolve(m.data) : p.reject(new Error(m.error || "Request failed"));
+    }
+  });
+  function applyTheme(t) {
+    if (!t) return;
+    const root = document.documentElement;
+    for (const [k, v] of Object.entries(t.vars || {})) if (v) root.style.setProperty(k, v);
+    if (t.font) root.style.setProperty("--font", t.font);
+    root.dataset.mode = t.mode === "light" ? "light" : "dark";
+  }
+  new ResizeObserver(() => parent.postMessage({ type: "agent-control:resize", height: document.documentElement.scrollHeight + 4 }, "*")).observe(document.body);
+  const go = (href) => parent.postMessage({ type: "agent-control:navigate", href }, "*");
+  document.getElementById("settings").onclick = () => go("#/plugins");
+  document.getElementById("refresh").onclick = () => load();
+
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const when = (iso) => iso ? new Date(iso).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
+  const STATUS = { succeeded: "done", failed: "failed", interrupted: "stopped", running: "running", starting: "starting", awaiting_input: "waiting for you" };
+
+  function card(a) {
+    const dot = !a.available ? (a.setting === "off" ? "" : "warn") : a.live ? "live" : "ok";
+    const chips = !a.available ? `<span class="chip ${a.setting === "off" ? "" : "warn"}">${a.setting === "off" ? "Off" : "Not found"}</span>`
+      : `<span class="chip ${a.live ? "live" : "ok"}">${a.live ? "Live" : "Headless"}</span>${a.version ? `<span class="chip">${esc(a.version)}</span>` : ""}`
+        + `<span class="chip ${a.confined ? "ok" : "warn"}" title="${a.confined ? "Reads and writes only in the task's folders" : "This version cannot be limited to folders: it can read and write anywhere"}">${a.confined ? "Confined to the task" : "Not confined"}</span>`;
+    return `<div class="app${a.available ? "" : " off"}">
+      <div class="head"><span class="dot ${dot}"></span><strong>${esc(a.label)}</strong></div>
+      <div class="meta">${esc(a.what)}</div>
+      <div class="chips">${chips}</div>
+      <div class="meta">${esc(a.works)}</div>
+      ${a.path ? `<div class="path">${esc(a.path)}</div>` : ""}
+      ${a.install ? `<div class="hint">${esc(a.install)}</div>` : ""}
+      ${a.available && !a.confined ? `<div class="hint">Its tools can reach files anywhere on this Mac. Allow them under Rights only if you trust what the agent does.</div>` : ""}
+    </div>`;
+  }
+  function render(s) {
+    document.getElementById("apps").innerHTML = s.apps.map(card).join("");
+    document.getElementById("folders").innerHTML = `
+      <div>Agents write only in the task's own output folder.</div>
+      <div style="margin-top:4px">Media folders they may read: ${s.mediaFolders.length ? s.mediaFolders.map((m) => `<code>${esc(m)}</code>`).join(", ") : "none (set them in Settings)"}</div>
+      <div style="margin-top:4px">LightCraft library: ${s.lightLibrary ? `<code>${esc(s.lightLibrary)}</code>` : "a fresh library per task"}</div>`;
+    document.getElementById("recent").innerHTML = s.recent.length
+      ? `<table><thead><tr><th>Task</th><th>App</th><th>How</th><th>Status</th><th>Started</th></tr></thead><tbody>${s.recent.map((r) => `<tr>
+          <td><a data-href="${esc(r.href)}">${esc(r.task_code)}</a></td>
+          <td>${esc((s.apps.find((a) => a.key === r.app) || {}).label || r.app)}</td>
+          <td>${r.mode === "live" ? "live" : "headless"}${r.confined ? "" : " · not confined"}</td>
+          <td>${esc(STATUS[r.status] || r.status)}</td>
+          <td class="meta">${when(r.started_at)}</td></tr>`).join("")}</tbody></table>`
+      : `<div class="meta">No run has used a Craft app in this workspace yet.</div>`;
+    for (const a of document.querySelectorAll("a[data-href]")) a.onclick = () => go(a.dataset.href);
+  }
+  async function load() {
+    try { render(await call("GET", "/status")); }
+    catch (e) { document.getElementById("apps").innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+  }
+</script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+{
+  "name": "agent-control-craft",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Craft Studio for Agent Control: photos, video, motion graphics and audio with the open-source Craft apps.",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "engines": { "node": ">=24" }
+}
