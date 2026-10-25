@@ -1,14 +1,14 @@
 // Craft Studio for Agent Control: agents make and edit photos, video, motion graphics and audio with the open-source
 // Craft apps. Nothing is rebuilt here: every app's own MCP server goes into the run (ctx.mcp.provide), started with the
 // task's folders as its only read and write roots when the app can confine itself, and live in the user's open app when
-// its control port answers. Two small tools tell the agent what it has and how to deliver for a platform; a page shows
+// it is open with a control port (found on the running app, nothing to set). Two small tools tell the agent what it has and how to deliver for a platform; a page shows
 // the apps and the recent runs that used them.
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { APPS, installHint } from "./lib/apps.mjs";
 import { appInstalled, createDetector, expandHome } from "./lib/detect.mjs";
-import { reachable as tcpReachable } from "./lib/bridge.mjs";
+import { controlPort } from "./lib/bridge.mjs";
 import { rootsFor, serverConfig, taskLibrary, workDir } from "./lib/servers.mjs";
 import { deliverySpec } from "./lib/delivery.mjs";
 import { GUIDE } from "./lib/guide.mjs";
@@ -16,10 +16,11 @@ import { GUIDE } from "./lib/guide.mjs";
 const TERMINAL = new Set(["succeeded", "failed", "interrupted"]);
 const list = (v) => (Array.isArray(v) ? v : String(v ?? "").split(/[,;\n]+/)).map((x) => String(x).trim()).filter(Boolean);
 
-export function createStudio(ctx, { detector = createDetector(), reachable = tcpReachable, now = () => new Date(), tmp = tmpdir(), home } = {}) {
+export function createStudio(ctx, { detector = createDetector(), findPort = controlPort, now = () => new Date(), tmp = tmpdir(), home } = {}) {
   const settings = (ws) => ctx.settings.get(ws) ?? {};
   const modeOf = (s, app) => (["auto", "headless", "off"].includes(s[`${app.key}Mode`]) ? s[`${app.key}Mode`] : "auto");
-  const portOf = (s, app) => { const n = Number(s[`${app.key}Port`]); return Number.isInteger(n) && n > 0 ? n : null; };
+  // PhotoCraft refuses a bridge without its control token, so without one it works headless.
+  const tokenMissing = (app) => app.key === "photo" && !ctx.secrets.get("photoControlToken");
 
   // The PhotoCraft control token, as a file only this user can read, while the plugin is loaded.
   let tokenDir = null, tokenValue = null;
@@ -50,11 +51,10 @@ export function createStudio(ctx, { detector = createDetector(), reachable = tcp
     if (mode === "off") return null;
     const found = await detector.find(app, s[`${app.key}Path`]);
     if (!found) return null;
-    const port = mode === "auto" ? portOf(s, app) : null;
-    let live = null;
-    if (port) {
-      if (await reachable(port)) live = port;
-      else ctx.log.info(`${app.label}: nothing answers on port ${port}, ${run.taskCode} works headless`);
+    let live = mode === "auto" ? await findPort(app) : null;
+    if (live && tokenMissing(app)) {
+      ctx.log.info(`${app.label} is open on port ${live}, but its control token is not under keys: ${run.taskCode} works headless`);
+      live = null;
     }
     const library = s.lightLibrary ? expandHome(String(s.lightLibrary).trim(), home) : taskLibrary(run, tmp);
     if (app.key === "light" && !live) mkdirSync(library, { recursive: true });
@@ -75,14 +75,18 @@ export function createStudio(ctx, { detector = createDetector(), reachable = tcp
   async function status(ws, { outputDir = null, check = true } = {}) {
     const s = settings(ws);
     const apps = await Promise.all(APPS.map(async (app) => {
-      const mode = modeOf(s, app), port = portOf(s, app);
+      const mode = modeOf(s, app);
       const found = mode === "off" ? null : await detector.find(app, s[`${app.key}Path`]);
-      const open = found && mode === "auto" && port && check ? await reachable(port) : false;
+      const port = found && mode === "auto" && check ? await findPort(app) : null;
+      const open = Boolean(port) && !tokenMissing(app);
       return {
         key: app.key, label: app.label, what: app.what, server: `craft-${app.key}`, setting: mode,
         available: Boolean(found), path: found?.path ?? null, version: found?.version ?? null,
-        confined: found ? found.confines : null, port, live: Boolean(open),
-        works: !found ? (mode === "off" ? "switched off in the settings" : "not installed") : open ? `live in the open ${app.label} window (port ${port})` : port && mode === "auto" ? "headless (the app is not open with its control port)" : "headless",
+        confined: found ? found.confines : null, port, live: open,
+        works: !found ? (mode === "off" ? "switched off in the settings" : "not installed")
+          : open ? `live in the open ${app.label} window (port ${port})`
+          : port ? `headless (${app.label} is open on port ${port}, but its control token is not under keys)`
+          : mode === "auto" ? `headless (live once ${app.label} is open with a control port)` : "headless",
         desktopApp: appInstalled(app, home),
         ...(found ? {} : mode === "off" ? {} : { install: installHint(app) }),
       };

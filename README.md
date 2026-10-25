@@ -19,8 +19,8 @@ agents, set up for Agent Control:
 - **Results where you expect them.** Projects and exports are saved in the task's output folder, so they show up
   under **Results** when the run ends. Previews and caches go to a scratch folder instead.
 - **Headless or live.** By default the apps run in the background, without windows, so agents can work at night. Start an
-  app with `--control <port>` and set that port in the plugin. While the port answers, agents work in your open window
-  and you can watch every edit.
+  app with control switched on (`--control <port>`, any free port) and the plugin finds the port on the running app.
+  While it is open, agents work in your window and you can watch every edit.
 - **No guessing.** `craft_status` tells the agent what it has and how to work. `craft_delivery_spec` gives exact sizes,
   frame rates, codecs, durations and the export call per app for Instagram, TikTok, LinkedIn, YouTube, the web, print and
   podcasts.
@@ -40,7 +40,7 @@ In Agent Control: **Plugins → Browse**, find **Craft Studio**, click **Install
 
 1. **Plugins → Installed → Craft Studio**: turn it on for the workspaces where agents should make media.
 2. Optionally fill in its **settings** per workspace: media folders agents may read (for example `~/Craft`,
-   `~/Pictures`), a LightCraft library, a control port per app for live mode, or switch an app off.
+   `~/Pictures`), a LightCraft library, or switch an app off.
 3. Open **Plugins → Craft Studio** to see which apps were found, their version, and whether each is confined.
 4. Under **Rights**, allow the tools `craft-film`, `craft-photo`, … for the workspace. Without that, the first call to
    each app asks you in the inbox. In God mode the autonomy rules decide, and every decision is in the God audit log.
@@ -55,8 +55,9 @@ At the start of every Claude run in a workspace where the plugin is on, Agent Co
 
 1. finds the CLI, reads its version, and checks whether its MCP server can confine file access
    (`--automation-read-root` / `--automation-write-root`);
-2. checks the app's control port, when you set one (at most 0.7 s): open means **live**
-   (`--bridge` / `--connect`), closed means **headless**;
+2. looks for the open app and the loopback port it listens on (`pgrep` + `lsof`, then a TCP check of at most 0.7 s):
+   found means **live** (`--bridge` / `--connect`), otherwise **headless**. PhotoCraft also needs its control token
+   under keys, else it stays headless;
 3. builds the command line. Confined apps get the output folder as their only write root, and the output folder, media
    folders and permitted folders as read roots. LightCraft gets a fresh library per task, or yours. EffectCraft runs
    headless with `--autosave`. LightCraft runs with `--compact`, so the agent sees about 17 tools instead of more than 300;

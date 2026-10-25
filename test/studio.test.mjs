@@ -8,11 +8,11 @@ import { createDetector } from "../lib/detect.mjs";
 import { fakeClis, fakeCtx, runOf, tempDirs } from "./helpers.mjs";
 
 const ALL = ["filmcraft-cli", "photocraft-cli", "lightcraft-cli", "effectcraft-cli", "soundcraft-cli"];
-function setup({ settings = {}, secrets = {}, clis = ALL, confines = ["photocraft-cli", "effectcraft-cli", "soundcraft-cli"], open = [] } = {}) {
+function setup({ settings = {}, secrets = {}, clis = ALL, confines = ["photocraft-cli", "effectcraft-cli", "soundcraft-cli"], open = {} } = {}) {
   const d = tempDirs();
   const bin = fakeClis(clis, { confines });
   const f = fakeCtx({ settings, secrets });
-  const studio = createStudio(f.ctx, { detector: createDetector({ home: d.home, env: { PATH: bin } }), reachable: async (p) => open.includes(p), tmp: d.root, home: d.home });
+  const studio = createStudio(f.ctx, { detector: createDetector({ home: d.home, env: { PATH: bin } }), findPort: async (app) => open[app.key] ?? null, tmp: d.root, home: d.home });
   return { ...f, d, bin, studio };
 }
 
@@ -28,22 +28,29 @@ test("every app gets a server; off or missing apps get none", async () => {
   assert.equal(await studio.provider(appOf("sound"))(run), null);
 });
 
-test("live when the control port answers, headless otherwise; the PhotoCraft token goes to a private file", async () => {
+test("live when the app is open with a control port, headless otherwise; the PhotoCraft token goes to a private file", async () => {
   const token = "a".repeat(64);
-  const { studio, d, logs } = setup({ settings: { photoPort: 7802, filmPort: 7801, effectPort: 7803, effectMode: "headless" }, secrets: { photoControlToken: token }, open: [7802, 7803] });
+  const { studio, d } = setup({ settings: { effectMode: "headless" }, secrets: { photoControlToken: token }, open: { photo: 7802, effect: 7803 } });
   const run = runOf(d);
   const photo = await studio.provider(appOf("photo"))(run);
   const file = photo.args[photo.args.indexOf("--control-token-file") + 1];
   assert.deepEqual(photo.args.slice(0, 3), ["mcp", "--bridge", "127.0.0.1:7802"]);
   assert.equal(readFileSync(file, "utf8"), token);
   assert.equal(statSync(file).mode & 0o777, 0o600);
-  // FilmCraft's port is closed: headless, with a note in the log.
+  // FilmCraft is not open: headless.
   assert.deepEqual((await studio.provider(appOf("film"))(run)).args, ["mcp"]);
-  assert.match(logs.join("\n"), /FilmCraft: nothing answers on port 7801/);
   // EffectCraft is set to always headless: the open port is not used.
   assert.deepEqual((await studio.provider(appOf("effect"))(run)).args.slice(0, 2), ["mcp", "--autosave"]);
   studio.cleanup();
   assert.equal(existsSync(file), false);
+});
+
+test("an open PhotoCraft without its control token works headless", async () => {
+  const { studio, d, logs } = setup({ open: { photo: 7802 } });
+  assert.deepEqual((await studio.provider(appOf("photo"))(runOf(d))).args.slice(0, 2), ["mcp", "--automation-read-root"]);
+  assert.match(logs.join("\n"), /PhotoCraft is open on port 7802, but its control token is not under keys/);
+  const by = Object.fromEntries((await studio.status("ws-1")).apps.map((a) => [a.key, a]));
+  assert.equal(by.photo.live, false); assert.match(by.photo.works, /control token/);
 });
 
 test("LightCraft: the library from the settings, else a fresh one per task", async () => {
@@ -65,7 +72,7 @@ test("media folders are readable, never writable", async () => {
 });
 
 test("runs are recorded with their mode and how they ended", async () => {
-  const { studio, d, db } = setup({ settings: { photoPort: 7802 }, open: [7802] });
+  const { studio, d, db } = setup({ secrets: { photoControlToken: "a".repeat(64) }, open: { photo: 7802 } });
   const run = runOf(d);
   await studio.provider(appOf("photo"))(run);
   await studio.provider(appOf("film"))(run);
@@ -84,12 +91,12 @@ test("runs are recorded with their mode and how they ended", async () => {
 });
 
 test("craft_status tells the agent what it has, how it works and how to get what is missing", async () => {
-  const { studio, d } = setup({ clis: ["filmcraft-cli", "photocraft-cli"], settings: { filmPort: 7801 }, open: [7801] });
+  const { studio, d } = setup({ clis: ["filmcraft-cli", "photocraft-cli"], open: { film: 7801 } });
   const st = await studio.statusTool({}, { workspaceId: "ws-1", outputDir: d.out });
   const by = Object.fromEntries(st.apps.map((a) => [a.key, a]));
   assert.equal(by.film.available, true); assert.equal(by.film.live, true); assert.match(by.film.works, /live in the open FilmCraft window/);
   assert.equal(by.film.confined, false);
-  assert.equal(by.photo.confined, true); assert.equal(by.photo.works, "headless");
+  assert.equal(by.photo.confined, true); assert.match(by.photo.works, /^headless \(live once PhotoCraft is open/);
   assert.equal(by.sound.available, false); assert.match(by.sound.install, /Craft Launcher/);
   assert.equal(st.outputFolder, d.out);
   assert.equal(st.scratchFolder, null);

@@ -74,7 +74,7 @@
       <li>Every Claude run in this workspace gets the MCP server of each installed Craft app (<code>craft-film</code>, <code>craft-photo</code>, …), plus <code>craft_status</code> and <code>craft_delivery_spec</code>.</li>
       <li>The first call to an app's tools asks you in the inbox, unless you allow it under Rights (tool <code>craft-film</code> and so on). In God mode the autonomy rules decide.</li>
       <li>Agents save projects and exports in the task's output folder; they appear under Results when the run ends.</li>
-      <li>Live mode: start the app with <code>--control &lt;port&gt;</code> and set that port in the settings. While it answers, agents work in your window and you can watch; otherwise they work headless.</li>
+      <li>Live mode: start the app with <code>--control &lt;port&gt;</code> (any free port); the plugin finds the port on the open app. While it is open, agents work in your window and you can watch; otherwise they work headless.</li>
     </ol>
   </section>
 <script>
