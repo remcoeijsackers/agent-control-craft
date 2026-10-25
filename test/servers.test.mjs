@@ -6,7 +6,7 @@ import { createServer } from "node:net";
 import { APPS, appOf } from "../lib/apps.mjs";
 import { rootsFor, serverConfig, taskLibrary } from "../lib/servers.mjs";
 import { candidates, createDetector } from "../lib/detect.mjs";
-import { reachable } from "../lib/bridge.mjs";
+import { controlPort, loopbackPorts, reachable } from "../lib/bridge.mjs";
 import { deliverySpec, TARGETS } from "../lib/delivery.mjs";
 import { fakeClis, runOf, tempDirs } from "./helpers.mjs";
 
@@ -91,4 +91,19 @@ test("delivery specs", () => {
   assert.ok(reel.how.some((h) => h.startsWith("FilmCraft:") && h.includes('"burnCaptions":true')));
   assert.match(deliverySpec("myspace").error, /Unknown target/);
   for (const [k, s] of Object.entries(TARGETS)) assert.ok(s.how.length && s.kind && s.notes, k);
+});
+
+test("the control port is read from the open app: its loopback listener, whatever started it", async () => {
+  assert.deepEqual(loopbackPorts("p78632\nf9\nn127.0.0.1:7992\nf10\nn*:7993\nf11\nn192.168.1.4:7994\nf12\nn[::1]:7992\n"), [7992, 7993]);
+  const calls = [];
+  const exec = async (file, args) => {
+    calls.push([file.split("/").pop(), ...args]);
+    return { ok: true, out: file.endsWith("pgrep") ? "78632\n78640\n" : "p78632\nf9\nn192.168.1.4:7000\nf10\nn127.0.0.1:7991\nn127.0.0.1:7992\n" };
+  };
+  assert.equal(await controlPort(appOf("film"), { exec, check: async (p) => p === 7992 }), 7992);
+  assert.deepEqual(calls[0], ["pgrep", "-x", "FilmCraft"]);
+  assert.deepEqual(calls[1].slice(1, 3), ["-a", "-p"]); assert.equal(calls[1][3], "78632,78640");
+  // Not running, or running without a control port: no port.
+  assert.equal(await controlPort(appOf("film"), { exec: async () => ({ ok: true, out: "\n" }) }), null);
+  assert.equal(await controlPort(appOf("film"), { exec: async (f) => ({ ok: true, out: f.endsWith("pgrep") ? "1\n" : "p1\n" }) }), null);
 });
