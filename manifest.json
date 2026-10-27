@@ -5,7 +5,7 @@
   "sdk": 1,
   "description": "Photos, video, motion graphics and audio with the open-source Craft apps (FilmCraft, PhotoCraft, LightCraft, EffectCraft, SoundCraft). Agents get each app's own MCP server, confined to the task's folders, headless or live in the app when it is open; exports land in the task's results.",
   "author": "Remco Eijsackers",
-  "homepage": "https://github.com/remcoeijsackers/agent-control-craft",
+  "homepage": "https://github.com/remcoeijsackers/mallows-plugin-craft",
   "permissions": ["mcp", "tools", "settings", "secrets", "routes", "db", "events"],
   "main": "index.mjs",
   "mcpServers": [
